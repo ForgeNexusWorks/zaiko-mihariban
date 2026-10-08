@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>在庫の見張り番</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1c2530;--sub:#5f6b7a;--line:#dde2e8;--accent:#1f6feb;--ok:#12805c;--warn:#b25e09;--bad:#c5362c;--chip:#eef1f5;--badbg:#fdecea;--warnbg:#fff4e2;--okbg:#e6f5ee}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#11161c;--card:#1a2129;--ink:#e6ebf1;--sub:#9aa6b4;--line:#2b3542;--accent:#6ea8ff;--ok:#4cc79a;--warn:#e6a94f;--bad:#f0857c;--chip:#242d38;--badbg:#3a2220;--warnbg:#3a2e1a;--okbg:#17302a}}
+:root[data-theme="dark"]{--bg:#11161c;--card:#1a2129;--ink:#e6ebf1;--sub:#9aa6b4;--line:#2b3542;--accent:#6ea8ff;--ok:#4cc79a;--warn:#e6a94f;--bad:#f0857c;--chip:#242d38;--badbg:#3a2220;--warnbg:#3a2e1a;--okbg:#17302a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:880px;margin:0 auto;padding:16px}
+h1{font-size:21px;margin:6px 0 0}
+h2{font-size:16px;margin:0 0 10px}
+.sub{color:var(--sub);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sum div{background:var(--chip);border-radius:10px;padding:10px}
+.sum b{display:block;font-size:19px}
+.sum .bad b{color:var(--bad)}.sum .warn b{color:var(--warn)}
+label{display:block;font-size:12px;color:var(--sub);margin-top:8px}
+input,select,textarea{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media (max-width:560px){.grid{grid-template-columns:1fr}.sum{grid-template-columns:1fr}}
+button{font:inherit;font-size:14px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+button.sm{padding:4px 10px;font-size:13px}
+button.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.tools input{flex:1;min-width:160px}
+.item{border-top:1px solid var(--line);padding:12px 0}
+.item:first-child{border-top:0;padding-top:0}
+.item .top{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;justify-content:space-between}
+.item .name{font-weight:600}
+.item .qty{font-weight:700;font-size:18px;white-space:nowrap}
+.item .qty small{font-weight:400;font-size:12px;color:var(--sub)}
+.badge{display:inline-block;font-size:12px;padding:1px 9px;border-radius:999px;background:var(--chip);color:var(--sub);white-space:nowrap}
+.badge.bad{background:var(--badbg);color:var(--bad)}.badge.warn{background:var(--warnbg);color:var(--warn)}.badge.ok{background:var(--okbg);color:var(--ok)}
+.empty{color:var(--sub);text-align:center;padding:18px 0}
+.hist{border-top:1px solid var(--line);padding:8px 0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;justify-content:space-between;font-size:14px}
+.hist:first-child{border-top:0}
+.plus{color:var(--ok);font-weight:600}.minus{color:var(--bad);font-weight:600}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);width:min(640px,calc(100vw - 32px));padding:16px}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.err{color:var(--bad);font-size:13px;margin-top:8px;min-height:1em}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+footer{color:var(--sub);font-size:12px;margin:18px 0 30px}
+</style>
+</head>
+<body>
+<main>
+<h1>在庫の見張り番</h1>
+<div class="sub">商品の「入庫・出庫」を記録して、今の在庫を出します。少なくなった商品はまとめて知らせます。登録不要・無料。データはこの端末の中だけに保存されます。</div>
+
+<div class="card"><div class="sum" id="sum"></div></div>
+
+<div class="card">
+<h2>商品の一覧</h2>
+<div class="tools">
+  <input id="q" type="search" placeholder="商品名・品番・置き場所でさがす" aria-label="さがす">
+  <button class="sm on" id="fAll">すべて</button>
+  <button class="sm" id="fLow">少ない・切れだけ</button>
+</div>
+<div id="list"></div>
+<div class="row"><button class="pri" id="addBtn">＋ 商品を追加</button><button id="sampleBtn">見本のデータを入れる</button></div>
+</div>
+
+<div class="card">
+<h2>最近の入出庫</h2>
+<div id="recent"></div>
+</div>
+
+<div class="card">
+<h2>データの保存と取り込み</h2>
+<div class="sub">CSV は Excel でそのまま開けます。取り込む CSV の列は「商品名, 品番, 単位, 知らせる数, 置き場所, 今の数」の順です（1行目は見出し）。</div>
+<div class="row">
+  <button id="csvStock">在庫の一覧を CSV で保存</button>
+  <button id="csvMoves">入出庫の履歴を CSV で保存</button>
+  <button id="csvIn">商品を CSV から取り込む</button>
+</div>
+<div class="row">
+  <button id="bakOut">バックアップを保存</button>
+  <button id="bakIn">バックアップから戻す</button>
+  <button id="wipe">すべて消す</button>
+</div>
+<input type="file" id="fileCsv" accept=".csv,text/csv" hidden>
+<input type="file" id="fileBak" accept=".json,application/json" hidden>
+</div>
+
+<footer>在庫の見張り番 ／ ForgeNexusWorks。データは外に送られません。ブラウザのデータを消すと記録も消えるので、ときどきバックアップを保存してください。</footer>
+</main>
+
+<dialog id="itemDlg">
+<h2 id="itemTitle">商品を追加</h2>
+<form method="dialog" id="itemForm">
+<label>商品名（必須）<input id="iName" maxlength="60" required></label>
+<div class="grid">
+<label>品番<input id="iCode" maxlength="30"></label>
+<label>単位（個・箱・本 など）<input id="iUnit" maxlength="8" placeholder="個"></label>
+<label>この数以下になったら知らせる<input id="iMin" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
+<label>置き場所<input id="iPlace" maxlength="30"></label>
+</div>
+<label id="iFirstWrap">今ある数（最初の在庫）<input id="iFirst" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
+<div class="err" id="itemErr"></div>
+<div class="row"><button class="pri" value="ok" id="itemOk">保存</button><button value="cancel" formnovalidate>やめる</button></div>
+</form>
+</dialog>
+
+<dialog id="moveDlg">
+<h2 id="moveTitle">入庫</h2>
+<form method="dialog" id="moveForm">
+<div class="sub" id="moveNow"></div>
+<div class="grid">
+<label id="mQtyLabel">数<input id="mQty" type="number" min="0" step="1" inputmode="numeric" required></label>
+<label>日付<input id="mDate" type="date" required></label>
+</div>
+<label>メモ（仕入先・出荷先・理由など）<input id="mNote" maxlength="60"></label>
+<div class="err" id="moveErr"></div>
+<div class="row"><button class="pri" value="ok">記録する</button><button value="cancel" formnovalidate>やめる</button></div>
+</form>
+</dialog>
+
+<dialog id="histDlg">
+<h2 id="histTitle">履歴</h2>
+<div id="histBody"></div>
+<div class="row"><button id="histClose">閉じる</button></div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+var KEY='zaiko-mihariban-v1';
+var state={items:[],moves:[]};
+var filterLow=false, editId=null, moveCtx=null, armed=null;
+
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function today(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function num(v){var n=Math.floor(Number(v));return isFinite(n)&&n>0?n:0}
+function fmt(n){return Number(n).toLocaleString('ja-JP')}
+
+function load(){
+  try{var raw=localStorage.getItem(KEY);if(raw){var d=JSON.parse(raw);if(d&&Array.isArray(d.items)&&Array.isArray(d.moves))state=d}}catch(e){}
+}
+function save(){
+  try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){toast('この端末に保存できませんでした')}
+}
+function toast(msg){var t=$('toast');t.textContent=msg;t.classList.add('on');clearTimeout(toast.tm);toast.tm=setTimeout(function(){t.classList.remove('on')},2200)}
+
+// 在庫＝入庫の合計 − 出庫の合計 ＋ 棚卸しの差
+function stockMap(){
+  var m={};
+  state.items.forEach(function(i){m[i.id]=0});
+  state.moves.forEach(function(v){if(!(v.itemId in m))return;m[v.itemId]+=(v.type==='out'?-v.qty:v.qty)});
+  return m;
+}
+function level(item,q){
+  if(q<=0)return 'bad';
+  if(item.min>0&&q<=item.min)return 'warn';
+  return 'ok';
+}
+var LABEL={bad:'在庫切れ',warn:'少ない',ok:'十分'};
+var TYPE={in:'入庫',out:'出庫',adj:'棚卸し'};
+
+function render(){
+  var m=stockMap(), bad=0, warn=0;
+  state.items.forEach(function(i){var l=level(i,m[i.id]);if(l==='bad')bad++;else if(l==='warn')warn++});
+  $('sum').innerHTML='<div><span class="sub">商品の数</span><b>'+state.items.length+' 品</b></div>'+
+    '<div class="warn"><span class="sub">少なくなっている</span><b>'+warn+' 品</b></div>'+
+    '<div class="bad"><span class="sub">在庫切れ</span><b>'+bad+' 品</b></div>';
+
+  var q=$('q').value.trim().toLowerCase();
+  var order={bad:0,warn:1,ok:2};
+  var rows=state.items.filter(function(i){
+    var l=level(i,m[i.id]);
+    if(filterLow&&l==='ok')return false;
+    if(q&&(i.name+' '+i.code+' '+i.place).toLowerCase().indexOf(q)===-1)return false;
+    return true;
+  }).sort(function(a,b){
+    var d=order[level(a,m[a.id])]-order[level(b,m[b.id])];
+    return d||a.name.localeCompare(b.name,'ja');
+  });
+  var html=rows.map(function(i){
+    var qv=m[i.id], l=level(i,qv), u=esc(i.unit||'個');
+    var meta=[];
+    if(i.code)meta.push('品番 '+esc(i.code));
+    if(i.place)meta.push('置き場所 '+esc(i.place));
+    if(i.min>0)meta.push(fmt(i.min)+' '+u+'以下で知らせる');
+    return '<div class="item"><div class="top"><span><span class="name">'+esc(i.name)+'</span> <span class="badge '+l+'">'+LABEL[l]+'</span></span>'+
+      '<span class="qty">'+fmt(qv)+' <small>'+u+'</small></span></div>'+
+      (meta.length?'<div class="sub">'+meta.join('　')+'</div>':'')+
+      '<div class="row" style="margin-top:8px">'+
+      '<button class="sm pri" data-act="in" data-id="'+i.id+'">入庫</button>'+
+      '<button class="sm" data-act="out" data-id="'+i.id+'">出庫</button>'+
+      '<button class="sm" data-act="adj" data-id="'+i.id+'">棚卸し</button>'+
+      '<button class="sm" data-act="hist" data-id="'+i.id+'">履歴</button>'+
+      '<button class="sm" data-act="edit" data-id="'+i.id+'">直す</button>'+
+      '<button class="sm" data-act="del" data-id="'+i.id+'">'+(armed==='i'+i.id?'もう一度押すと消えます':'消す')+'</button>'+
+      '</div></div>';
+  }).join('');
+  if(!html){
+    html='<div class="empty">'+(state.items.length?'当てはまる商品はありません。':'まだ商品がありません。「＋ 商品を追加」か「見本のデータを入れる」から始めてください。')+'</div>';
+  }
+  $('list').innerHTML=html;
+  $('fAll').classList.toggle('on',!filterLow);
+  $('fLow').classList.toggle('on',filterLow);
+
+  var names={};state.items.forEach(function(i){names[i.id]=i});
+  var rec=state.moves.slice().sort(function(a,b){return (b.date+b.at).localeCompare(a.date+a.at)}).slice(0,8);
+  $('recent').innerHTML=rec.length?rec.map(function(v){return moveRow(v,names[v.itemId],true)}).join(''):'<div class="empty">まだ記録がありません。</div>';
+}
+function moveRow(v,item,withName){
+  var u=esc(item&&item.unit||'個');
+  var sign=v.type==='out'?'−':(v.qty<0?'−':'＋');
+  var cls=sign==='−'?'minus':'plus';
+  return '<div class="hist"><span>'+esc(v.date)+'　<span class="badge">'+TYPE[v.type]+'</span>'+
+    (withName?'　'+esc(item?item.name:'（消した商品）'):'')+
+    (v.note?'　<span class="sub">'+esc(v.note)+'</span>':'')+'</span>'+
+    '<span><span class="'+cls+'">'+sign+fmt(Math.abs(v.qty))+' '+u+'</span>'+
+    (withName?'':'　<button class="sm" data-mdel="'+v.id+'">'+(armed==='m'+v.id?'もう一度押すと消えます':'取り消す')+'</button>')+'</span></div>';
+}
+
+// 商品の追加・直す
+function openItem(id){
+  editId=id||null;
+  var i=id?state.items.find(function(x){return x.id===id}):null;
+  $('itemTitle').textContent=i?'商品を直す':'商品を追加';
+  $('iName').value=i?i.name:'';$('iCode').value=i?i.code:'';$('iUnit').value=i?i.unit:'';
+  $('iMin').value=i&&i.min?i.min:'';$('iPlace').value=i?i.place:'';$('iFirst').value='';
+  $('iFirstWrap').style.display=i?'none':'';
+  $('itemErr').textContent='';
+  $('itemDlg').showModal();$('iName').focus();
+}
+$('itemForm').addEventListener('submit',function(e){
+  if(e.submitter&&e.submitter.value==='cancel')return;
+  var name=$('iName').value.trim();
+  if(!name){e.preventDefault();$('itemErr').textContent='商品名を入れてください。';return}
+  var dup=state.items.some(function(x){return x.id!==editId&&x.name===name&&x.code===$('iCode').value.trim()});
+  if(dup){e.preventDefault();$('itemErr').textContent='同じ商品名・品番の商品がすでにあります。';return}
+  var data={name:name,code:$('iCode').value.trim(),unit:$('iUnit').value.trim()||'個',min:num($('iMin').value),place:$('iPlace').value.trim()};
+  if(editId){
+    var i=state.items.find(function(x){return x.id===editId});Object.assign(i,data);toast('直しました');
+  }else{
+    data.id=uid();state.items.push(data);
+    var first=num($('iFirst').value);
+    if(first>0)state.moves.push({id:uid(),itemId:data.id,type:'in',qty:first,date:today(),at:new Date().toISOString(),note:'最初の在庫'});
+    toast('追加しました');
+  }
+  save();render();
+});
+
+// 入庫・出庫・棚卸し
+function openMove(id,type){
+  var i=state.items.find(function(x){return x.id===id});if(!i)return;
+  var now=stockMap()[id];
+  moveCtx={id:id,type:type,now:now};
+  $('moveTitle').textContent=TYPE[type]+'：'+i.name;
+  $('moveNow').textContent='今の在庫：'+fmt(now)+' '+(i.unit||'個');
+  $('mQtyLabel').firstChild.textContent=type==='adj'?'数えた数（この数に合わせます）':(type==='in'?'入庫した数':'出庫した数');
+  $('mQty').min=type==='adj'?0:1;
+  $('mQty').value='';$('mDate').value=today();$('mNote').value='';$('moveErr').textContent='';
+  $('moveDlg').showModal();$('mQty').focus();
+}
+$('moveForm').addEventListener('submit',function(e){
+  if(e.submitter&&e.submitter.value==='cancel')return;
+  var c=moveCtx, raw=$('mQty').value, n=Math.floor(Number(raw));
+  if(raw===''||!isFinite(n)||n<0||(c.type!=='adj'&&n<1)){e.preventDefault();$('moveErr').textContent='数を入れてください。';return}
+  if(c.type==='out'&&n>c.now){e.preventDefault();$('moveErr').textContent='今の在庫（'+fmt(c.now)+'）より多い数は出庫できません。';return}
+  var qty=n;
+  if(c.type==='adj'){qty=n-c.now;if(qty===0){e.preventDefault();$('moveErr').textContent='今の在庫と同じ数です。';return}}
+  state.moves.push({id:uid(),itemId:c.id,type:c.type,qty:qty,date:$('mDate').value||today(),at:new Date().toISOString(),note:$('mNote').value.trim()});
+  save();render();toast(TYPE[c.type]+'を記録しました');
+});
+
+// 履歴
+var histId=null;
+function openHist(id){
+  histId=id;drawHist();$('histDlg').showModal();
+}
+function drawHist(){
+  var i=state.items.find(function(x){return x.id===histId});if(!i){$('histDlg').close();return}
+  $('histTitle').textContent='履歴：'+i.name+'（今の在庫 '+fmt(stockMap()[i.id])+' '+(i.unit||'個')+'）';
+  var rows=state.moves.filter(function(v){return v.itemId===histId}).sort(function(a,b){return (b.date+b.at).localeCompare(a.date+a.at)});
+  $('histBody').innerHTML=rows.length?rows.map(function(v){return moveRow(v,i,false)}).join(''):'<div class="empty">まだ記録がありません。</div>';
+}
+$('histClose').addEventListener('click',function(){$('histDlg').close()});
+$('histBody').addEventListener('click',function(e){
+  var b=e.target.closest('[data-mdel]');if(!b)return;
+  var id=b.getAttribute('data-mdel');
+  if(armed!=='m'+id){armed='m'+id;drawHist();return}
+  var v=state.moves.find(function(x){return x.id===id});
+  var after=stockMap()[v.itemId]-(v.type==='out'?-v.qty:v.qty);
+  armed=null;
+  if(after<0){toast('取り消すと在庫がマイナスになるので、取り消せません');drawHist();return}
+  state.moves=state.moves.filter(function(x){return x.id!==id});
+  save();render();drawHist();toast('取り消しました');
+});
+
+$('list').addEventListener('click',function(e){
+  var b=e.target.closest('[data-act]');if(!b)return;
+  var id=b.getAttribute('data-id'), act=b.getAttribute('data-act');
+  if(act==='del'){
+    if(armed!=='i'+id){armed='i'+id;render();return}
+    armed=null;
+    state.items=state.items.filter(function(x){return x.id!==id});
+    state.moves=state.moves.filter(function(x){return x.itemId!==id});
+    save();render();toast('消しました');return;
+  }
+  armed=null;
+  if(act==='edit')openItem(id);
+  else if(act==='hist')openHist(id);
+  else openMove(id,act);
+});
+$('addBtn').addEventListener('click',function(){openItem(null)});
+$('q').addEventListener('input',render);
+$('fAll').addEventListener('click',function(){filterLow=false;render()});
+$('fLow').addEventListener('click',function(){filterLow=true;render()});
+
+// 見本のデータ（架空の雑貨店）
+$('sampleBtn').addEventListener('click',function(){
+  if(state.items.length){toast('すでに商品があります。見本は空のときだけ入れられます');return}
+  var d=new Date();function ago(n){var x=new Date(d);x.setDate(x.getDate()-n);return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0')}
+  var S=[
+    ['マグカップ（白）','MG-001','個',10,'棚A-1',[['in',40,14,'最初の在庫'],['out',18,9,'店頭'],['out',14,2,'ネット注文']]],
+    ['トートバッグ（生成り）','TB-010','枚',5,'棚A-2',[['in',20,14,'最初の在庫'],['out',12,6,'イベント販売'],['out',8,1,'ネット注文']]],
+    ['ラッピング袋 M','WR-200','枚',50,'棚C-1',[['in',300,14,'最初の在庫'],['out',120,7,'店頭'],['out',95,3,'店頭']]],
+    ['ポストカード 5枚組','PC-005','組',8,'棚B-3',[['in',30,14,'最初の在庫'],['out',9,5,'店頭']]],
+    ['宅配用の箱 60サイズ','BX-060','箱',20,'倉庫',[['in',100,14,'最初の在庫'],['out',45,8,'発送'],['in',50,4,'仕入れ'],['out',38,1,'発送']]]
+  ];
+  S.forEach(function(s,k){
+    var id=uid()+k;state.items.push({id:id,name:s[0],code:s[1],unit:s[2],min:s[3],place:s[4]});
+    s[5].forEach(function(v,j){state.moves.push({id:uid()+k+j,itemId:id,type:v[0],qty:v[1],date:ago(v[2]),at:new Date(d.getTime()-v[2]*864e5+j).toISOString(),note:v[3]})});
+  });
+  save();render();toast('見本のデータを入れました（数字は見本です）');
+});
+
+// CSV
+function csvCell(v){v=String(v==null?'':v);return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
+function download(name,text,type){
+  var blob=new Blob([text],{type:type});var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);
+}
+function toCsv(rows){return '﻿'+rows.map(function(r){return r.map(csvCell).join(',')}).join('\r\n')+'\r\n'}
+$('csvStock').addEventListener('click',function(){
+  if(!state.items.length){toast('商品がありません');return}
+  var m=stockMap();
+  var rows=[['商品名','品番','単位','知らせる数','置き場所','今の数','状態']];
+  state.items.forEach(function(i){rows.push([i.name,i.code,i.unit,i.min,i.place,m[i.id],LABEL[level(i,m[i.id])]])});
+  download('在庫の一覧_'+today()+'.csv',toCsv(rows),'text/csv');toast('保存しました');
+});
+$('csvMoves').addEventListener('click',function(){
+  if(!state.moves.length){toast('記録がありません');return}
+  var names={};state.items.forEach(function(i){names[i.id]=i});
+  var rows=[['日付','種類','商品名','品番','数','メモ']];
+  state.moves.slice().sort(function(a,b){return (a.date+a.at).localeCompare(b.date+b.at)}).forEach(function(v){
+    var i=names[v.itemId]||{name:'',code:''};
+    rows.push([v.date,TYPE[v.type],i.name,i.code,v.type==='out'?-v.qty:v.qty,v.note]);
+  });
+  download('入出庫の履歴_'+today()+'.csv',toCsv(rows),'text/csv');toast('保存しました');
+});
+function parseCsv(text){
+  var rows=[],row=[],cur='',q=false;text=text.replace(/^﻿/,'');
+  for(var k=0;k<text.length;k++){
+    var c=text[k];
+    if(q){if(c==='"'){if(text[k+1]==='"'){cur+='"';k++}else q=false}else cur+=c}
+    else if(c==='"')q=true;
+    else if(c===','){row.push(cur);cur=''}
+    else if(c==='\n'||c==='\r'){if(c==='\r'&&text[k+1]==='\n')k++;row.push(cur);cur='';rows.push(row);row=[]}
+    else cur+=c;
+  }
+  if(cur!==''||row.length){row.push(cur);rows.push(row)}
+  return rows.filter(function(r){return r.some(function(x){return x.trim()!==''})});
+}
+function importCsv(text){
+  var rows=parseCsv(text);if(rows.length<2)return {added:0,skipped:0};
+  var added=0,skipped=0;
+  rows.slice(1).forEach(function(r){
+    var name=(r[0]||'').trim(), code=(r[1]||'').trim();
+    if(!name||state.items.some(function(x){return x.name===name&&x.code===code})){skipped++;return}
+    var id=uid()+added;
+    state.items.push({id:id,name:name.slice(0,60),code:code.slice(0,30),unit:(r[2]||'').trim().slice(0,8)||'個',min:num(r[3]),place:(r[4]||'').trim().slice(0,30)});
+    var first=num(r[5]);
+    if(first>0)state.moves.push({id:uid()+'f'+added,itemId:id,type:'in',qty:first,date:today(),at:new Date().toISOString(),note:'CSV から取り込み'});
+    added++;
+  });
+  return {added:added,skipped:skipped};
+}
+$('csvIn').addEventListener('click',function(){$('fileCsv').value='';$('fileCsv').click()});
+$('fileCsv').addEventListener('change',function(){
+  var f=this.files[0];if(!f)return;var rd=new FileReader();
+  rd.onload=function(){var r=importCsv(String(rd.result));save();render();toast(r.added+' 品を取り込みました'+(r.skipped?'（'+r.skipped+' 行は飛ばしました）':''))};
+  rd.readAsText(f);
+});
+
+// バックアップ
+$('bakOut').addEventListener('click',function(){download('在庫の見張り番_バックアップ_'+today()+'.json',JSON.stringify(state,null,1),'application/json');toast('保存しました')});
+$('bakIn').addEventListener('click',function(){$('fileBak').value='';$('fileBak').click()});
+$('fileBak').addEventListener('change',function(){
+  var f=this.files[0];if(!f)return;var rd=new FileReader();
+  rd.onload=function(){
+    try{
+      var d=JSON.parse(String(rd.result));
+      if(!d||!Array.isArray(d.items)||!Array.isArray(d.moves))throw 0;
+      state={items:d.items,moves:d.moves};save();render();toast('バックアップから戻しました');
+    }catch(e){toast('このファイルは読み込めませんでした')}
+  };
+  rd.readAsText(f);
+});
+$('wipe').addEventListener('click',function(){
+  if(armed!=='wipe'){armed='wipe';this.textContent='もう一度押すと、すべて消えます';return}
+  armed=null;this.textContent='すべて消す';state={items:[],moves:[]};save();render();toast('すべて消しました');
+});
+
+load();render();
+})();
+</script>
+</body>
+</html>
